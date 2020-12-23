@@ -32,6 +32,7 @@
 static const char *tag = "NimBLE_BLE_PRPH";
 static int bleprph_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
+static uint8_t adv_position;
 
 void ble_store_config_init(void);
 
@@ -148,7 +149,7 @@ bleprph_advertise(int nr_adv)
     memset(&adv_params, 0, sizeof adv_params);
     adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER,
+    rc = ble_gap_adv_start(own_addr_type, NULL, 400,
                            &adv_params, bleprph_gap_event, NULL);
     if (rc != 0) {
         MODLOG_DFLT(ERROR, "error enabling advertisement; rc=%d\n", rc);
@@ -156,7 +157,7 @@ bleprph_advertise(int nr_adv)
     }
 }
 
-
+/*
 static void
 bleprph_advertise_task_0(void *pvParameters){
     bleprph_advertise(0);
@@ -168,24 +169,19 @@ bleprph_advertise_task_1(void *pvParameters){
     bleprph_advertise(1);
     vTaskDelete( NULL );
 }
+*/
 
 //wrapper for multi advertising
 static void 
 bleprph_advertise_wrapper(void){
-     xTaskCreate(
-                    bleprph_advertise_task_0,          /* Task function. */
-                    "ADVZero",        /* String with name of task. */
-                    10000,            /* Stack size in bytes. */
-                    NULL,             /* Parameter passed as input of the task */
-                    1,                /* Priority of the task. */
-                    NULL);            /* Task handle. */
-    xTaskCreate(
-                    bleprph_advertise_task_1,          /* Task function. */
-                    "ADVOne",        /* String with name of task. */
-                    10000,            /* Stack size in bytes. */
-                    NULL,             /* Parameter passed as input of the task */
-                    1,                /* Priority of the task. */
-                    NULL);            /* Task handle. */
+    if(adv_position==0){
+        adv_position=1;
+        bleprph_advertise(0);
+    }else{
+        adv_position=0;
+        bleprph_advertise(1);
+    }
+     
 }
 
 
