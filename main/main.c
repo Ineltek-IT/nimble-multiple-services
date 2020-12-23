@@ -62,17 +62,21 @@ bleprph_print_conn_desc(struct ble_gap_conn_desc *desc)
                 desc->sec_state.bonded);
 }
 
+
+
 /**
  * Enables advertising with the following parameters:
  *     o General discoverable mode.
  *     o Undirected connectable mode.
  */
 static void
-bleprph_advertise(void)
+bleprph_advertise(int nr_adv)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
+    struct ble_hs_adv_fields fields_added;
     const char *name;
+    const char *name_added;
     int rc;
 
     /**
@@ -84,12 +88,15 @@ bleprph_advertise(void)
      */
 
     memset(&fields, 0, sizeof fields);
-
+    memset(&fields_added, 0, sizeof fields_added);
     /* Advertise two flags:
      *     o Discoverability in forthcoming advertisement (general)
      *     o BLE-only (BR/EDR unsupported).
      */
     fields.flags = BLE_HS_ADV_F_DISC_GEN |
+                   BLE_HS_ADV_F_BREDR_UNSUP;
+    
+    fields_added.flags = BLE_HS_ADV_F_DISC_GEN |
                    BLE_HS_ADV_F_BREDR_UNSUP;
 
     /* Indicate that the TX power level field should be included; have the
@@ -99,10 +106,18 @@ bleprph_advertise(void)
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
 
+    fields_added.tx_pwr_lvl_is_present=1;
+    fields_added.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
+
     name = ble_svc_gap_device_name();
     fields.name = (uint8_t *)name;
     fields.name_len = strlen(name);
     fields.name_is_complete = 1;
+
+    name_added = "nimble second adv";
+    fields_added.name = (uint8_t *)name_added;
+    fields_added.name_len = strlen(name_added);
+    fields_added.name_is_complete = 1;
 
     fields.uuids16 = (ble_uuid16_t[]) {
         BLE_UUID16_INIT(GATT_SVR_SVC_ALERT_UUID)
@@ -110,7 +125,20 @@ bleprph_advertise(void)
     fields.num_uuids16 = 1;
     fields.uuids16_is_complete = 1;
 
-    rc = ble_gap_adv_set_fields(&fields);
+    fields_added.uuids16 = (ble_uuid16_t[]) {
+        BLE_UUID16_INIT(GATT_SVR_SVC_ALERT_UUID)
+    };
+    fields_added.num_uuids16 = 1;
+    fields_added.uuids16_is_complete = 1;
+
+    // Selection of advertisement
+    if(nr_adv==0){
+        rc = ble_gap_adv_set_fields(&fields);
+    }else{
+        rc = ble_gap_adv_set_fields(&fields_added);
+    }
+
+
     if (rc != 0) {
         MODLOG_DFLT(ERROR, "error setting advertisement data; rc=%d\n", rc);
         return;
@@ -127,6 +155,39 @@ bleprph_advertise(void)
         return;
     }
 }
+
+
+static void
+bleprph_advertise_task_0(void *pvParameters){
+    bleprph_advertise(0);
+    vTaskDelete( NULL );
+}
+
+static void
+bleprph_advertise_task_1(void *pvParameters){
+    bleprph_advertise(1);
+    vTaskDelete( NULL );
+}
+
+//wrapper for multi advertising
+static void 
+bleprph_advertise_wrapper(void){
+     xTaskCreate(
+                    bleprph_advertise_task_0,          /* Task function. */
+                    "ADVZero",        /* String with name of task. */
+                    10000,            /* Stack size in bytes. */
+                    NULL,             /* Parameter passed as input of the task */
+                    1,                /* Priority of the task. */
+                    NULL);            /* Task handle. */
+    xTaskCreate(
+                    bleprph_advertise_task_1,          /* Task function. */
+                    "ADVOne",        /* String with name of task. */
+                    10000,            /* Stack size in bytes. */
+                    NULL,             /* Parameter passed as input of the task */
+                    1,                /* Priority of the task. */
+                    NULL);            /* Task handle. */
+}
+
 
 /**
  * The nimble host executes this callback when a GAP event occurs.  The
@@ -164,7 +225,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
 
         if (event->connect.status != 0) {
             /* Connection failed; resume advertising. */
-            bleprph_advertise();
+            bleprph_advertise_wrapper();
         }
         return 0;
 
@@ -174,7 +235,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         MODLOG_DFLT(INFO, "\n");
 
         /* Connection terminated; resume advertising. */
-        bleprph_advertise();
+        bleprph_advertise_wrapper();
         return 0;
 
     case BLE_GAP_EVENT_CONN_UPDATE:
@@ -190,7 +251,7 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_ADV_COMPLETE:
         MODLOG_DFLT(INFO, "advertise complete; reason=%d",
                     event->adv_complete.reason);
-        bleprph_advertise();
+        bleprph_advertise_wrapper();
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
@@ -316,7 +377,7 @@ bleprph_on_sync(void)
     print_addr(addr_val);
     MODLOG_DFLT(INFO, "\n");
     /* Begin advertising. */
-    bleprph_advertise();
+    bleprph_advertise_wrapper();
 }
 
 void bleprph_host_task(void *param)
